@@ -9,7 +9,7 @@ import {
 import { PromptTemplate } from "@langchain/core/prompts";
 import { z } from "zod";
 
-const GROQ_API_KEY = "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";
+
 
 // Define the exact schema we want
 const outputSchema = z.object({
