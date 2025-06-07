@@ -78,6 +78,11 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Force dark theme - this is the key change */
+:root {
+  color-scheme: dark;
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -116,7 +121,88 @@
   * {
     @apply border-border outline-ring/50;
   }
+  
+  /* Force dark theme */
+  html {
+    background-color: #0a0a0a !important;
+    color: #ffffff !important;
+  }
+  
   body {
-    @apply bg-background text-foreground;
+    background-color: #0a0a0a !important;
+    color: #ffffff !important;
+  }
+  
+  /* VibeDocs specific styles */
+  .notion-content {
+    color: #e1e1e1;
+  }
+
+  .notion-content h1, 
+  .notion-content h2, 
+  .notion-content h3, 
+  .notion-content h4 {
+    color: #ffffff;
+    margin: 1rem 0 0.5rem 0;
+    font-weight: 600;
+  }
+
+  .notion-content p {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+    color: #9ca3af;
+  }
+
+  .notion-content button {
+    background: #374151;
+    border: 1px solid #4b5563;
+    color: #e1e1e1;
+    transition: all 0.2s;
+  }
+
+  .notion-content button:hover {
+    background: #4b5563;
+    border-color: #6b7280;
+  }
+
+  .notion-content input {
+    background: #1f2937;
+    border: 1px solid #374151;
+    color: #e1e1e1;
+    border-radius: 8px;
+    padding: 0.5rem;
+  }
+
+  .notion-content canvas {
+    border-radius: 8px;
+  }
+
+  .notion-content div[style*="gradient"] {
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  }
+  
+  /* Smooth transitions for all interactive elements */
+  button, input, textarea {
+    transition: all 0.2s ease-in-out;
+  }
+  
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
   }
 }
