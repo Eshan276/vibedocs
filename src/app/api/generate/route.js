@@ -19,31 +19,42 @@ const parser = new JsonOutputParser();
 
 // Prompt template with format instructions
 const prompt = PromptTemplate.fromTemplate(`
-You are VibeDocs content generator. Create interactive HTML components based on user prompts.
+You are VibeDocs content generator. Create complete, functional HTML components.
 
 {format_instructions}
 
-Generate content based on:
-- User Prompt: {prompt}
-- Document Context: {context}
+User wants: {prompt}
+Document context: {context}
+Unique timestamp: {timestamp}
 
-RULES:
-1. Generate complete, functional HTML with inline CSS and JavaScript
-2. Use unique IDs with timestamp {timestamp} to avoid conflicts
-3. For charts, use Chart.js from CDN: https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js
-4. Make everything responsive and beautiful
-5. Wrap all JavaScript in IIFE to avoid variable conflicts
-6. Include proper error handling and retries for external dependencies
+CRITICAL REQUIREMENTS:
+1. Generate COMPLETE HTML with ALL CSS and JavaScript inline
+2. Include full implementation - not just empty containers
+3. Dependencies should only be script/CSS URLs, never data APIs
+4. Use unique IDs with timestamp {timestamp} to avoid conflicts
+5. Wrap JavaScript in IIFE with timestamp-specific variables
+6. Include proper styling, error handling, and functionality
 
-EXAMPLES:
-- "bitcoin chart" → Interactive Chart.js cryptocurrency price chart
-- "calculator" → Functional calculator with modern styling
-- "todo list" → Interactive task manager with add/delete/complete
-- "weather widget" → Weather display with animations
-- "color picker" → HSL/RGB color selection tool
-- "timer" → Countdown timer with start/stop functionality
+For charts:
+- Use Chart.js from: https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js
+- Generate mock data or use simulated live data
+- Include complete chart initialization code
 
-Generate appropriate content for the user's request.
+For interactive widgets:
+- Include all event handlers and logic
+- Use modern CSS styling with gradients/shadows
+- Make responsive and beautiful
+
+EXAMPLE OUTPUT for "calculator":
+{{
+  "type": "interactive",
+  "content": "<div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 25px; max-width: 320px; margin: 0 auto;'><h4 style='color: white; text-align: center; margin: 0 0 20px 0;'>Calculator</h4><input type='text' id='display_{timestamp}' readonly style='width: 100%; padding: 15px; border: none; border-radius: 12px; text-align: right; font-size: 1.5em; margin-bottom: 20px; box-sizing: border-box;'><div style='display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;'><button onclick='clear_{timestamp}()' style='padding: 15px; border: none; border-radius: 10px; background: #ff6b6b; color: white; cursor: pointer;'>C</button><!-- more buttons --></div><script>(function(){{ let value_{timestamp} = ''; window.clear_{timestamp} = function(){{ value_{timestamp} = ''; document.getElementById('display_{timestamp}').value = ''; }}; }})();</script></div>",
+  "isReactive": false,
+  "dependencies": [],
+  "updateInterval": null
+}}
+
+Generate the complete implementation for: {prompt}
 `);
 
 export async function POST(request) {
@@ -65,40 +76,65 @@ export async function POST(request) {
     // Create the chain
     const chain = prompt.pipe(model).pipe(parser);
 
-    // Generate content
-    const result = await chain.invoke({
-      prompt: userPrompt,
-      context: documentContext || "No context available",
-      timestamp: timestamp,
-      format_instructions:
-        parser.getFormatInstructions() +
-        `
+    // Generate content with retries
+    let result;
+    let attempts = 0;
+    const maxAttempts = 3;
 
-Return JSON with this exact structure:
+    while (attempts < maxAttempts) {
+      try {
+        result = await chain.invoke({
+          prompt: userPrompt,
+          context: documentContext || "No context available",
+          timestamp: timestamp,
+          format_instructions: `Return JSON with this exact structure:
 {
   "type": "interactive" | "text",
-  "content": "complete HTML string with inline CSS and JavaScript",
+  "content": "complete HTML string with inline CSS and JavaScript - must be fully functional",
   "isReactive": boolean,
-  "dependencies": ["array of CDN URLs"],
+  "dependencies": ["only CDN URLs for scripts/CSS, no data APIs"],
   "updateInterval": number | null
-}`,
-    });
+}
 
-    // Validate the result
-    if (!result || typeof result !== "object") {
-      throw new Error("Invalid JSON structure returned");
+The content field must contain a complete, working implementation with all styling and JavaScript inline.`,
+        });
+        console.log("Raw result:", result);
+        if (result && typeof result === "object" && result.content) {
+          console.log("Raw result:", result);
+          break;
+        }
+        throw new Error("Incomplete result");
+      } catch (error) {
+        attempts++;
+        if (attempts === maxAttempts) {
+          throw error;
+        }
+        console.log(`Attempt ${attempts} failed, retrying...`);
+      }
     }
 
-    // Ensure required fields
+    // Validate and clean the result
     const validatedResult = {
-      type: result.type || "text",
-      content: result.content || "No content generated",
+      type: result.type || "interactive",
+      content: result.content || "",
       isReactive: Boolean(result.isReactive),
       dependencies: Array.isArray(result.dependencies)
-        ? result.dependencies
+        ? result.dependencies.filter(
+            (dep) =>
+              typeof dep === "string" &&
+              (dep.includes(".js") || dep.includes(".css")) &&
+              dep.startsWith("http")
+          )
         : [],
       updateInterval: result.updateInterval || null,
     };
+
+    // Ensure content is substantial
+    if (validatedResult.content.length < 100) {
+      throw new Error(
+        "Generated content too minimal - please be more specific in your request"
+      );
+    }
 
     console.log("Generated content:", {
       type: validatedResult.type,
@@ -115,9 +151,11 @@ Return JSON with this exact structure:
     let errorMessage = error.message;
     if (error.message.includes("JSON")) {
       errorMessage =
-        "Failed to generate valid content structure. Please try rephrasing your request.";
+        "Failed to generate valid content. Please try rephrasing your request.";
     } else if (error.message.includes("API")) {
       errorMessage = "AI service temporarily unavailable. Please try again.";
+    } else if (error.message.includes("minimal")) {
+      errorMessage = error.message;
     }
 
     return NextResponse.json(

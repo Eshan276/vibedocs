@@ -24,6 +24,7 @@ interface Block {
   prompt: string;
   generatedContent: GeneratedContent | null;
   isGenerating: boolean;
+  isAccepted: boolean; // New field for tracking acceptance
   position: number;
 }
 
@@ -38,6 +39,7 @@ interface BlockComponentProps {
   onUpdate: (updates: Partial<Block>) => void;
   onDelete: () => void;
   onGenerate: () => void;
+  onAccept: () => void; // New accept handler
   onAddBlock: (type: BlockType) => void;
 }
 
@@ -83,6 +85,7 @@ export default function VibeDocs() {
       prompt: "",
       generatedContent: null,
       isGenerating: false,
+      isAccepted: false, // Initialize as not accepted
       position: index,
     };
 
@@ -157,6 +160,10 @@ export default function VibeDocs() {
     }
   };
 
+  const acceptBlock = (blockId: string) => {
+    updateBlock(blockId, { isAccepted: true });
+  };
+
   const triggerReactiveBlocks = async (documentContext: string) => {
     const reactiveBlocks = document.blocks.filter(
       (block) =>
@@ -197,6 +204,7 @@ export default function VibeDocs() {
               onUpdate={(updates) => updateBlock(block.id, updates)}
               onDelete={() => deleteBlock(block.id)}
               onGenerate={() => generateBlockContent(block.id)}
+              onAccept={() => acceptBlock(block.id)}
               onAddBlock={(type) => addBlock(type, index + 1)}
             />
           ))}
@@ -239,15 +247,22 @@ function BlockComponent({
   onUpdate,
   onDelete,
   onGenerate,
+  onAccept,
   onAddBlock,
 }: BlockComponentProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const acceptedContentRef = useRef<HTMLDivElement>(null); // Separate ref for accepted content
   const [scriptsLoaded, setScriptsLoaded] = useState<Set<string>>(new Set());
 
   // Load external dependencies first
   const loadDependencies = async (dependencies: string[]) => {
-    for (const dep of dependencies) {
+    // Filter out non-script URLs (like data APIs)
+    const scriptDependencies = dependencies.filter(
+      (dep) => dep.includes(".js") || dep.includes(".css")
+    );
+
+    for (const dep of scriptDependencies) {
       if (scriptsLoaded.has(dep)) continue;
 
       try {
@@ -260,18 +275,33 @@ function BlockComponent({
             return;
           }
 
-          const script = document.createElement("script");
-          script.src = dep;
-          script.async = true;
-          script.onload = () => {
+          const element = dep.includes(".css")
+            ? document.createElement("link")
+            : document.createElement("script");
+
+          if (dep.includes(".css")) {
+            (element as HTMLLinkElement).rel = "stylesheet";
+            (element as HTMLLinkElement).href = dep;
+          } else {
+            (element as HTMLScriptElement).src = dep;
+            (element as HTMLScriptElement).async = true;
+          }
+
+          element.onload = () => {
             setScriptsLoaded((prev) => new Set([...prev, dep]));
             resolve();
           };
-          script.onerror = () => reject(new Error(`Failed to load: ${dep}`));
-          document.head.appendChild(script);
+          element.onerror = () => {
+            console.warn(`Failed to load dependency: ${dep}`);
+            // Don't reject - just warn and continue
+            resolve();
+          };
+
+          document.head.appendChild(element);
         });
       } catch (error) {
-        console.error("Failed to load dependency:", dep, error);
+        console.warn("Failed to load dependency:", dep, error);
+        // Continue with other dependencies
       }
     }
   };
@@ -315,10 +345,15 @@ function BlockComponent({
       if (
         (block.generatedContent?.type === "html" ||
           block.generatedContent?.type === "interactive") &&
-        contentRef.current
+        block.generatedContent.content
       ) {
+        // Choose the right ref based on acceptance status
+        const targetRef = block.isAccepted ? acceptedContentRef : contentRef;
+
+        if (!targetRef.current) return;
+
         // Clear previous content
-        contentRef.current.innerHTML = "";
+        targetRef.current.innerHTML = "";
 
         // Load dependencies first
         if (block.generatedContent.dependencies?.length) {
@@ -330,15 +365,15 @@ function BlockComponent({
         }
 
         // Set the HTML content
-        contentRef.current.innerHTML = block.generatedContent.content;
+        targetRef.current.innerHTML = block.generatedContent.content;
 
         // Execute scripts with proper timing
-        await executeScripts(contentRef.current);
+        await executeScripts(targetRef.current);
       }
     };
 
     renderContent();
-  }, [block.generatedContent, scriptsLoaded]);
+  }, [block.generatedContent, block.isAccepted, scriptsLoaded]);
 
   return (
     <div className="group relative">
@@ -359,10 +394,10 @@ function BlockComponent({
               placeholder="Start writing your document..."
               className="min-h-[120px] border-none bg-transparent resize-none focus-visible:ring-0 text-base leading-relaxed placeholder:text-gray-400"
             />
-          ) : block.generatedContent ? (
-            // Show only the generated content once created
+          ) : block.isAccepted ? (
+            // Show only the clean generated content once accepted
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              {block.generatedContent.type === "text" ? (
+              {block.generatedContent?.type === "text" ? (
                 <div className="p-4">
                   <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans">
                     {block.generatedContent.content}
@@ -370,14 +405,14 @@ function BlockComponent({
                 </div>
               ) : (
                 <div
-                  ref={contentRef}
+                  ref={acceptedContentRef}
                   className="generated-content"
                   style={{ minHeight: "100px" }}
                 />
               )}
             </div>
           ) : (
-            // Show the AI prompt interface only when no content exists
+            // Show the AI prompt interface with generation and acceptance flow
             <Card className="p-5 border-2 border-dashed border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50">
               <div className="space-y-4">
                 {/* Header */}
@@ -417,12 +452,56 @@ function BlockComponent({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 mr-2" />
-                      Generate Content
+                      {block.generatedContent
+                        ? "Regenerate Content"
+                        : "Generate Content"}
                     </>
                   )}
                 </Button>
 
-                {/* Generated content - only show if no content yet */}
+                {/* Generated content preview */}
+                {block.generatedContent && (
+                  <div className="mt-4">
+                    <div className="bg-white rounded-lg border border-purple-200 p-4 mb-3">
+                      {block.generatedContent.type === "text" ? (
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans">
+                          {block.generatedContent.content}
+                        </pre>
+                      ) : (
+                        <div
+                          ref={contentRef}
+                          className="generated-content"
+                          style={{ minHeight: "100px" }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Accept/Regenerate actions */}
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={onAccept}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        ✓ Accept & Finalize
+                      </Button>
+                      <Button
+                        onClick={onGenerate}
+                        disabled={block.isGenerating}
+                        variant="outline"
+                        className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                      >
+                        🔄 Try Again
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-purple-600 mt-2 text-center">
+                      💡 Not happy? Modify your prompt and regenerate, or accept
+                      to finalize
+                    </p>
+                  </div>
+                )}
+
+                {/* Helper text when no content */}
                 {!block.generatedContent && (
                   <div className="mt-4 text-center text-sm text-purple-600">
                     💡 Describe what you want and click Generate
